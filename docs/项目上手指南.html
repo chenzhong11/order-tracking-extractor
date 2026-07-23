@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>order-tracking-extractor 项目上手指南</title>
+<style>
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("https://cdn.jsdelivr.net/gh/tw93/Kami@main/assets/fonts/TsangerJinKai02-W04.ttf") format("truetype");
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: url("https://cdn.jsdelivr.net/gh/tw93/Kami@main/assets/fonts/TsangerJinKai02-W05.ttf") format("truetype");
+  font-weight: 500; font-style: normal;
+}
+
+:root {
+  --parchment: #f5f4ed;
+  --ivory: #faf9f5;
+  --warm-sand: #e8e6dc;
+  --near-black: #141413;
+  --dark-warm: #3d3d3a;
+  --olive: #504e49;
+  --stone: #6b6a64;
+  --brand: #1B365D;
+  --brand-light: #2D5A8A;
+  --border: #e8e6dc;
+  --border-soft: #e5e3d8;
+  --tag-bg: #E4ECF5;
+  --serif: "TsangerJinKai02", "Source Han Serif SC", "Noto Serif CJK SC", Georgia, serif;
+  --mono: "JetBrains Mono", "SF Mono", Consolas, monospace;
+}
+
+@page { margin: 0; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { background: #e2e0d8; }
+
+body {
+  font-family: var(--serif);
+  font-size: 10pt;
+  line-height: 1.55;
+  color: var(--near-black);
+  background: var(--parchment);
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 40pt 50pt;
+  box-shadow: 0 1pt 8pt rgba(0,0,0,0.08);
+}
+
+@media print {
+  html { background: none; }
+  body { max-width: none; box-shadow: none; padding: 20mm 22mm; }
+}
+
+/* 标题左侧竖条 */
+.section-title {
+  font-size: 14pt; font-weight: 500;
+  color: var(--near-black);
+  margin: 28pt 0 10pt 0;
+  border-left: 2.5pt solid var(--brand);
+  border-radius: 1.5pt;
+  padding-left: 8pt;
+}
+
+h1 {
+  font-size: 22pt; font-weight: 500;
+  line-height: 1.20;
+  color: var(--near-black);
+  margin: 0 0 6pt 0;
+}
+h1 .eyebrow {
+  display: block;
+  font-size: 9pt; font-weight: 600;
+  color: var(--brand);
+  letter-spacing: 0.8pt;
+  text-transform: uppercase;
+  margin-bottom: 4pt;
+}
+
+h2 {
+  font-size: 16pt; font-weight: 500;
+  line-height: 1.25;
+  color: var(--near-black);
+  margin: 24pt 0 8pt 0;
+  border-left: 2.5pt solid var(--brand);
+  padding-left: 8pt;
+}
+
+h3 {
+  font-size: 13pt; font-weight: 500;
+  line-height: 1.30;
+  color: var(--dark-warm);
+  margin: 16pt 0 6pt 0;
+}
+
+.subtitle {
+  font-size: 11pt; font-weight: 400;
+  color: var(--olive);
+  line-height: 1.55;
+  margin-bottom: 12pt;
+}
+
+.meta {
+  font-size: 9pt; color: var(--stone);
+  margin-bottom: 20pt;
+}
+
+p {
+  font-size: 10pt;
+  line-height: 1.55;
+  color: var(--olive);
+  margin: 6pt 0;
+}
+
+ul.dash { list-style: none; margin: 0; padding: 0; }
+ul.dash li {
+  position: relative; padding-left: 14pt; margin-bottom: 4pt; line-height: 1.45;
+  font-size: 10pt; color: var(--olive);
+}
+ul.dash li::before {
+  content: "\2013"; position: absolute; left: 0; color: var(--brand);
+}
+
+ol { margin: 6pt 0 6pt 18pt; }
+ol li { font-size: 10pt; line-height: 1.55; color: var(--olive); margin-bottom: 4pt; }
+
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 9pt; margin: 8pt 0;
+}
+table th {
+  text-align: left; font-weight: 500; color: var(--dark-warm);
+  padding: 4pt 6pt; border-bottom: 1pt solid var(--border);
+}
+table td {
+  padding: 3pt 6pt; border-bottom: 0.3pt solid var(--border-soft);
+  color: var(--olive);
+}
+
+.tag {
+  display: inline-block;
+  background: #E4ECF5;
+  color: var(--brand);
+  font-size: 8pt; font-weight: 600;
+  padding: 1pt 5pt;
+  border-radius: 2pt;
+  letter-spacing: 0.4pt;
+  margin-right: 3pt;
+}
+
+.callout {
+  background: transparent;
+  border-left: 1.8pt solid var(--brand);
+  padding: 4pt 0 4pt 14pt;
+  margin: 10pt 0;
+  font-size: 10pt; line-height: 1.5;
+  color: var(--olive);
+}
+.callout .hl { color: var(--brand); font-weight: 500; }
+
+/* 指标卡 */
+.metrics-row {
+  display: flex; gap: 16pt; margin: 12pt 0;
+  border-bottom: 0.5pt solid var(--border);
+  padding-bottom: 12pt;
+}
+.metric-card {
+  flex: 1; text-align: center;
+}
+.metric-value {
+  font-size: 20pt; font-weight: 500;
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+}
+.metric-label {
+  font-size: 8pt; color: var(--stone);
+  margin-top: 2pt;
+}
+
+/* 代码块 */
+pre {
+  background: #2d2d2d;
+  color: #ccc;
+  font-family: var(--mono);
+  font-size: 8.5pt;
+  line-height: 1.45;
+  padding: 10pt 14pt;
+  border-radius: 3pt;
+  margin: 8pt 0;
+  overflow-x: auto;
+}
+code {
+  font-family: var(--mono);
+  font-size: 9pt;
+  background: var(--warm-sand);
+  padding: 1pt 3pt;
+  border-radius: 2pt;
+}
+pre code {
+  background: none;
+  padding: 0;
+}
+
+/* 流程节点 */
+.flow {
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 4pt; margin: 10pt 0; font-size: 9pt;
+}
+.flow-node {
+  background: var(--ivory);
+  border: 0.5pt solid var(--border);
+  border-radius: 2pt;
+  padding: 3pt 8pt;
+  color: var(--dark-warm);
+}
+.flow-arrow { color: var(--stone); font-size: 10pt; }
+
+/* 分隔线 */
+hr {
+  border: none;
+  border-top: 0.5pt solid var(--border);
+  margin: 20pt 0;
+}
+
+/* 阶段卡片 */
+.phase-card {
+  background: var(--ivory);
+  border: 0.5pt solid var(--border);
+  border-radius: 3pt;
+  padding: 14pt 16pt;
+  margin: 10pt 0;
+}
+.phase-card .phase-num {
+  display: inline-block;
+  background: var(--brand);
+  color: #fff;
+  font-size: 9pt; font-weight: 600;
+  width: 20pt; height: 20pt;
+  line-height: 20pt;
+  text-align: center;
+  border-radius: 50%;
+  margin-right: 6pt;
+}
+.phase-card .phase-title {
+  font-size: 13pt; font-weight: 500;
+  color: var(--near-black);
+  display: inline;
+}
+.phase-card .phase-desc {
+  font-size: 9.5pt; color: var(--olive);
+  margin-top: 6pt; line-height: 1.50;
+}
+.phase-card .phase-prompt {
+  font-family: var(--mono);
+  font-size: 8.5pt;
+  background: #2d2d2d;
+  color: #ccc;
+  padding: 8pt 10pt;
+  border-radius: 2pt;
+  margin-top: 8pt;
+  white-space: pre-wrap;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- 封面 -->
+<!-- ============================================================ -->
+<div style="text-align:center; padding: 60pt 0 40pt 0;">
+  <div style="font-size:9pt; font-weight:600; color:var(--brand); letter-spacing:1pt; text-transform:uppercase;">ORDER-TRACKING-EXTRACTOR</div>
+  <h1 style="border:none; padding:0; margin:8pt 0 0 0; font-size:28pt;">项目上手指南</h1>
+  <div class="subtitle" style="margin-top:10pt;">从「AI帮我做项目」到「我理解这个项目」</div>
+  <div class="meta">v7.22 · 2026-07-23 · 柱塞泵阶次分析特征提取封装包</div>
+</div>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- 核心理念 -->
+<!-- ============================================================ -->
+<div class="callout">
+  <span class="hl">核心理念：</span>不要让 AI 充当"代码生成器"，而是充当"代码导师"。目标不是拿到代码，而是<span class="hl">培养独立理解项目的能力</span>。
+</div>
+
+<div class="metrics-row">
+  <div class="metric-card">
+    <div class="metric-value">10</div>
+    <div class="metric-label">学习阶段</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">4</div>
+    <div class="metric-label">核心能力</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">1</div>
+    <div class="metric-label">核心代码文件</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-value">49/49</div>
+    <div class="metric-label">验证通过</div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第一阶段 -->
+<!-- ============================================================ -->
+<h2>第一阶段：建立整体认知</h2>
+
+<p>先不要看代码。先理解整个项目。</p>
+
+<div class="phase-card">
+  <span class="phase-num">1</span>
+  <span class="phase-title">项目架构</span>
+  <div class="phase-desc">
+    <ul class="dash">
+      <li>这个项目解决什么问题？→ 柱塞泵振动信号的阶次分析、特征提取与故障诊断</li>
+      <li>整个数据流是怎样流动的？→ 振动信号 → 阶次分析 → 特征提取 → 故障诊断</li>
+      <li>哪个模块最重要？→ <code>core.py</code>（2534行，全部算法的单文件集成）</li>
+      <li>如果让我修改算法，应该优先看哪些文件？→ 只看 <code>core.py</code></li>
+    </ul>
+  </div>
+  <div class="phase-prompt">Prompt:
+请不要逐行解释代码。请先站在高级工程师的角度，
+介绍这个项目的整体架构。
+
+请回答：
+1. 这个项目解决什么问题？
+2. 整个数据流是怎样流动的？
+3. 各个文件分别负责什么？
+4. 主程序入口在哪里？
+5. 哪几个模块最重要？
+6. 如果让我修改算法，应该优先看哪些文件？
+7. 请画出项目调用关系图（Mermaid）。</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第二阶段 -->
+<!-- ============================================================ -->
+<h2>第二阶段：理解每个模块</h2>
+
+<p>重点不是 <code>for i in range()</code>，而是这个模块为什么存在。</p>
+
+<div class="phase-card">
+  <span class="phase-num">2</span>
+  <span class="phase-title">模块职责</span>
+  <div class="phase-desc">
+    <table>
+      <tr><th>模块</th><th>为什么需要</th><th>输入</th><th>输出</th></tr>
+      <tr><td>阶次分析</td><td>消除转速波动，提取与转速同步的周期性成分</td><td>振动信号 + 转速</td><td>各阶次幅值/能量</td></tr>
+      <tr><td>特征提取</td><td>将原始信号转化为可比较的数值指标</td><td>振动信号</td><td>时域/频域/阶次域/冲击域特征字典</td></tr>
+      <tr><td>频带诊断</td><td>按故障机理定向分析特定频带</td><td>信号 + 故障配置</td><td>is_fault + confidence</td></tr>
+      <tr><td>物理诊断</td><td>基于物理机理的多故障综合判定</td><td>故障特征 + 正常特征</td><td>结论 + 置信度 + 触发详情</td></tr>
+    </table>
+  </div>
+  <div class="phase-prompt">Prompt:
+对于这个模块，请按照下面顺序回答：
+- 为什么需要这个模块？
+- 输入是什么？输出是什么？
+- 核心思想是什么？
+- 如果没有它会怎样？
+- 它和其他模块怎样连接？
+- 最后再解释代码。</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第三阶段 -->
+<!-- ============================================================ -->
+<h2>第三阶段：建立工程思维</h2>
+
+<p>这是最重要的阶段。理解设计决策，比理解代码本身更有价值。</p>
+
+<div class="phase-card">
+  <span class="phase-num">3</span>
+  <span class="phase-title">设计思想</span>
+  <div class="phase-desc">
+    <table>
+      <tr><th>设计决策</th><th>为什么这样做</th><th>替代方案</th><th>为什么没选</th></tr>
+      <tr><td>单文件集成（core.py）</td><td>简化部署，一个文件即可用</td><td>多模块拆分</td><td>柱塞泵场景用户多为工程师，非开发者</td></tr>
+      <tr><td>COT + TOT 双路径</td><td>有无转速信号都能用</td><td>只用 TOT</td><td>很多现场没有转速传感器</td></tr>
+      <tr><td>比值诊断（非绝对阈值）</td><td>消除传感器/安装差异</td><td>固定阈值</td><td>不同设备的绝对值差异太大</td></tr>
+      <tr><td>三轴联合诊断</td><td>单轴会漏检松靴</td><td>单轴分析</td><td>真实数据证明：X轴漏检，Z轴能检出</td></tr>
+    </table>
+  </div>
+  <div class="phase-prompt">Prompt:
+请把自己当成公司的导师，不要教我Python，而是教我工程。
+请告诉我：
+- 为什么作者这样设计？
+- 有没有其他方案？
+- 为什么没有采用其他方案？
+- 这种设计有什么优缺点？
+- 企业项目一般会怎么写？
+- 论文代码和工业代码有什么区别？</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第四阶段 -->
+<!-- ============================================================ -->
+<h2>第四阶段：主动训练</h2>
+
+<p>不要看答案，自己动手。这是学习最快的方法。</p>
+
+<div class="phase-card">
+  <span class="phase-num">4</span>
+  <span class="phase-title">代码补全训练</span>
+  <div class="phase-desc">
+    <ul class="dash">
+      <li>删除关键函数的 20%，让你补充</li>
+      <li>只告诉你输入输出，不告诉实现</li>
+      <li>给你需求，让你自己设计函数</li>
+    </ul>
+  </div>
+  <div class="phase-prompt">Prompt:
+请删除这个函数最关键的20%，保留其他部分，让我自己完成。
+
+或者：
+请只告诉我输入输出，不告诉实现。
+
+或者：
+请给我需求，让我自己设计函数。</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第五阶段 -->
+<!-- ============================================================ -->
+<h2>第五阶段：Debug 训练</h2>
+
+<p>企业最值钱的能力不是写代码，是定位问题。</p>
+
+<div class="phase-card">
+  <span class="phase-num">5</span>
+  <span class="phase-title">Bug 定位训练</span>
+  <div class="phase-desc">
+    <ul class="dash">
+      <li>0-100Hz 频带返回 NaN → 滤波器数值不稳定（已修复：改用 SOS 格式）</li>
+      <li>峭度比值 0.09x → 负值直接比值无意义（已修复：变化比例计算）</li>
+      <li>单轴诊断漏检松靴 → 需要三轴联合分析</li>
+      <li>配流盘触发多种故障 → 共享特征导致，由置信度排序区分</li>
+    </ul>
+  </div>
+  <div class="phase-prompt">Prompt:
+请人为制造10个真实开发中最容易遇到的Bug。
+不告诉我答案。让我自己调试。
+每解决一个，再告诉我原因。</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第六阶段 -->
+<!-- ============================================================ -->
+<h2>第六阶段：代码评审</h2>
+
+<div class="phase-card">
+  <span class="phase-num">6</span>
+  <span class="phase-title">Code Review 训练</span>
+  <div class="phase-prompt">Prompt:
+请模拟高级工程师。Review我的代码。
+不修改代码。只指出：
+- 可读性问题
+- 工程规范问题
+- 性能问题
+- Bug风险
+- 可以优化的地方</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第七阶段 -->
+<!-- ============================================================ -->
+<h2>第七阶段：算法理解</h2>
+
+<p>不要问"这是什么意思"，要问"为什么必须这样"。</p>
+
+<div class="phase-card">
+  <span class="phase-num">7</span>
+  <span class="phase-title">算法原理</span>
+  <div class="phase-desc">
+    <table>
+      <tr><th>算法</th><th>解决什么问题</th><th>为什么这样设计</th><th>如果不这样会怎样</th></tr>
+      <tr><td>COT</td><td>无转速信号时做阶次分析</td><td>STFT 脊线估计瞬时转频</td><td>没有转速就无法做等角度重采样</td></tr>
+      <tr><td>TOT</td><td>有转速信号时精确阶次分析</td><td>转速计直接驱动重采样</td><td>COT 转频估计有偏差（14.65Hz vs 24.67Hz）</td></tr>
+      <tr><td>包络解调</td><td>从高频共振中提取冲击重复频率</td><td>带通→Hilbert→包络→FFT</td><td>直接 FFT 看不出冲击特征</td></tr>
+      <tr><td>峭度</td><td>量化信号中的冲击成分</td><td>四阶矩反映分布尾部厚度</td><td>RMS 对冲击不敏感</td></tr>
+    </table>
+  </div>
+  <div class="phase-prompt">Prompt:
+为什么这里必须用COT而不是直接FFT？
+为什么包络解调要先带通再Hilbert？
+如果把峭度换成波峰因子会发生什么？</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第八阶段 -->
+<!-- ============================================================ -->
+<h2>第八阶段：迁移训练</h2>
+
+<p>这是与你未来液压 PHM 最相关的训练。</p>
+
+<div class="phase-card">
+  <span class="phase-num">8</span>
+  <span class="phase-title">场景迁移</span>
+  <div class="phase-desc">
+    <table>
+      <tr><th>迁移场景</th><th>可复用</th><th>必须修改</th><th>风险最大</th></tr>
+      <tr><td>轴承故障诊断</td><td>阶次分析框架、特征提取架构</td><td>故障频带配置、f_p→BPFO/BPFI</td><td>轴承的共振频带与柱塞泵不同</td></tr>
+      <tr><td>齿轮箱诊断</td><td>频带能量分析、COT/TOT</td><td>啮合频率计算、边带分析</td><td>齿轮的调制模式更复杂</td></tr>
+      <tr><td>变转速工况</td><td>TOT 路径（需高精度转速）</td><td>COT 路径需重写</td><td>STFT 脊线在快速变转速时失效</td></tr>
+    </table>
+  </div>
+  <div class="phase-prompt">Prompt:
+如果把这个项目从柱塞泵故障诊断迁移到轴承故障诊断，
+哪些地方必须修改？哪些地方可以直接复用？
+哪些地方风险最大？请按优先级排序。</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第九阶段 -->
+<!-- ============================================================ -->
+<h2>第九阶段：工程优化</h2>
+
+<div class="phase-card">
+  <span class="phase-num">9</span>
+  <span class="phase-title">可维护性 / 效率 / 扩展性</span>
+  <div class="phase-desc">
+    <ul class="dash">
+      <li>可维护性：core.py 2534行 → 是否应该拆分为多个模块？</li>
+      <li>运行效率：阶次分析对200000点信号耗时 → 是否可以向量化？</li>
+      <li>扩展性：新增故障类型 → 只需在 FAULT_DIAGNOSTICS 添加配置即可</li>
+      <li>测试覆盖：validate_signals.py（16项）+ validate_algorithm.py（49项）</li>
+    </ul>
+  </div>
+  <div class="phase-prompt">Prompt:
+如果这是企业项目，怎样提高可维护性、运行效率和扩展性？
+请给出具体的重构建议和优先级。</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 第十阶段 -->
+<!-- ============================================================ -->
+<h2>第十阶段：知识总结</h2>
+
+<div class="phase-card">
+  <span class="phase-num">10</span>
+  <span class="phase-title">必须掌握的工程思想</span>
+  <div class="phase-desc">
+    <ol>
+      <li><strong>比值诊断</strong>：用故障/正常的比值替代绝对阈值，消除设备间差异</li>
+      <li><strong>双路径架构</strong>：COT（无传感器）+ TOT（有传感器）覆盖不同现场条件</li>
+      <li><strong>物理驱动的频带选择</strong>：频带不是随便选的，是根据故障机理确定的</li>
+      <li><strong>三轴联合分析</strong>：单轴会漏检，必须多视角交叉验证</li>
+      <li><strong>宁可多报不漏报</strong>：置信度排序区分主次，而非硬阈值二值判定</li>
+      <li><strong>合成信号验证</strong>：用已知 ground truth 的信号验证算法正确性</li>
+      <li><strong>五维自检</strong>：输入定义、物理依据、适用边界、输出含义、验证闭环</li>
+    </ol>
+  </div>
+</div>
+
+<hr>
+
+<!-- ============================================================ -->
+<!-- 四个核心能力 -->
+<!-- ============================================================ -->
+<h2>四个核心能力</h2>
+
+<p>每完成一个项目，问自己四个问题：</p>
+
+<table>
+  <tr><th>能力</th><th>问题</th><th>训练方法</th></tr>
+  <tr><td><span class="tag">设计能力</span></td><td>它为什么这么设计？</td><td>第三阶段：工程思维</td></tr>
+  <tr><td><span class="tag">架构能力</span></td><td>如果需求变了，我该改哪里？</td><td>第八阶段：迁移训练</td></tr>
+  <tr><td><span class="tag">调试能力</span></td><td>如果结果错了，我如何定位问题？</td><td>第五阶段：Debug 训练</td></tr>
+  <tr><td><span class="tag">迁移能力</span></td><td>如果换成液压 PHM 场景，我还能用吗？</td><td>第八阶段：迁移训练</td></tr>
+</table>
+
+<div class="callout">
+  <span class="hl">最终目标：</span>不是成为"会Python的人"，而是成为<span class="hl">能够驾驭 AI 完成工程开发的人</span>。三年后，你积累的不只是几十个代码仓库，而是一套可以迁移到任何工程项目中的开发能力。
+</div>
+
+<!-- ============================================================ -->
+<!-- 项目文件速查 -->
+<!-- ============================================================ -->
+<h2>项目文件速查</h2>
+
+<table>
+  <tr><th>文件</th><th>行数</th><th>职责</th></tr>
+  <tr><td><code>order_tracking_extractor/core.py</code></td><td>2534</td><td>全部算法（单文件集成）</td></tr>
+  <tr><td><code>order_tracking_extractor/__init__.py</code></td><td>42</td><td>统一导出</td></tr>
+  <tr><td><code>examples/generate_fault_signals.py</code></td><td>~300</td><td>合成信号生成器</td></tr>
+  <tr><td><code>examples/validate_signals.py</code></td><td>~300</td><td>信号正确性验证（16项）</td></tr>
+  <tr><td><code>examples/validate_algorithm.py</code></td><td>~300</td><td>算法有效性验证（49项）</td></tr>
+  <tr><td><code>test/data/real/</code></td><td>6文件</td><td>真实三轴振动数据</td></tr>
+  <tr><td><code>docs/验证报告.md</code></td><td>—</td><td>验证结果（含6张图）</td></tr>
+  <tr><td><code>docs/诊断结果解读指南.md</code></td><td>—</td><td>诊断结果怎么读</td></tr>
+  <tr><td><code>docs/算法技术文档.md</code></td><td>—</td><td>故障机理 + 特征架构</td></tr>
+  <tr><td><code>docs/算法开发五维自检清单.md</code></td><td>—</td><td>五维自查</td></tr>
+</table>
+
+</body>
+</html>
