@@ -16,7 +16,7 @@ from __future__ import annotations
 # 版本元数据
 # ============================================================
 
-PACKAGE_VERSION = "7.22"
+PACKAGE_VERSION = "7.23"
 ALGORITHM_ID = "order_tracking_v2"
 ALGORITHM_VERSION = "A-7.22"
 FEATURE_SCHEMA_VERSION = "2026.07"
@@ -231,27 +231,6 @@ def compute_envelope(
     envelope = np.abs(analytic_signal)
     envelope = envelope - np.mean(envelope)
     return envelope
-
-
-def compute_envelope_spectrum(
-    signal_data: np.ndarray,
-    sampling_rate: float,
-    bandpass_range: Tuple[float, float] = (500.0, 5000.0),
-) -> Tuple[np.ndarray, np.ndarray]:
-    """计算包络谱：对包络信号做FFT。
-
-    函数版本: F-1.0.0
-    创建人: 位豪
-    编辑日期: 2026-06-02
-    """
-    envelope = compute_envelope(signal_data, sampling_rate, bandpass_range)
-    env_freqs, env_magnitudes = compute_fft_spectrum(envelope, sampling_rate)
-    return env_freqs, env_magnitudes
-
-
-# ============================================================
-# 第四部分：阶次能量提取
-# ============================================================
 
 def sliding_window_segments(
     data: np.ndarray, segment_length: int, overlap_ratio: float = 0.5
@@ -709,50 +688,6 @@ def tot_order_analysis(
     return tot_result
 
 
-def tachometer_to_speed(
-    tach_signal: np.ndarray,
-    sampling_rate: float,
-    pulses_per_rev: int = 360,
-    threshold: Optional[float] = None,
-) -> np.ndarray:
-    """将转速脉冲信号转换为连续瞬时转频。
-
-    函数版本: F-1.0.0
-    创建人: 位豪
-    编辑日期: 2026-06-09
-    """
-    signal = np.asarray(tach_signal, dtype=float)
-
-    if threshold is None:
-        threshold = (signal.min() + signal.max()) / 2.0
-
-    binary = signal >= threshold
-    rising_edges = np.where(np.diff(binary.astype(int)) == 1)[0]
-
-    if len(rising_edges) < 2:
-        return np.full(len(signal), 0.0)
-
-    edge_times = rising_edges / sampling_rate
-    periods = np.diff(edge_times)
-    freq_at_edges = 1.0 / (periods * pulses_per_rev)
-
-    mid_times = (edge_times[:-1] + edge_times[1:]) / 2.0
-    time_axis = np.arange(len(signal)) / sampling_rate
-
-    freq_ext = np.concatenate([[freq_at_edges[0]], freq_at_edges, [freq_at_edges[-1]]])
-    time_ext = np.concatenate([[time_axis[0]], mid_times, [time_axis[-1]]])
-
-    interp_func = interp1d(time_ext, freq_ext, kind="linear", fill_value="extrapolate")
-    speed_hz = interp_func(time_axis)
-    speed_hz = np.clip(speed_hz, 0.1, 200.0)
-
-    return speed_hz
-
-
-# ============================================================
-# 第八部分：统一接口
-# ============================================================
-
 _MIN_FFT_LENGTH = 8192
 
 
@@ -1078,87 +1013,6 @@ def check_diagnosis(
         "ratios_sliding_window": diag_sliding_window["ratios"],
     }
 
-
-# ============================================================
-# 第十部分：Vold-Kalman 滤波
-# ============================================================
-
-def vk_order_analysis(
-    signal_data: np.ndarray,
-    sampling_rate: float,
-    rotational_freq: Optional[float] = None,
-    instantaneous_freq: Optional[np.ndarray] = None,
-    max_order: int = 15,
-    bandwidth_ratio: float = 0.3,
-) -> Dict[str, Any]:
-    """Vold-Kalman阶次分析主函数（带通滤波+Hilbert近似实现）。
-
-    函数版本: F-1.0.0
-    创建人: 位豪
-    编辑日期: 2026-06-09
-    """
-    vk_result: Dict[str, Any] = {"method": "VK"}
-    n = len(signal_data)
-
-    if instantaneous_freq is not None:
-        inst_freq = instantaneous_freq
-        if len(inst_freq) != n:
-            t_old = np.linspace(0, 1, len(inst_freq))
-            t_new = np.linspace(0, 1, n)
-            inst_freq = interp1d(t_old, inst_freq, kind="linear")(t_new)
-    elif rotational_freq is not None:
-        inst_freq = np.full(n, rotational_freq)
-    else:
-        raise ValueError("必须提供 rotational_freq 或 instantaneous_freq")
-
-    vk_result["instantaneous_freq"] = inst_freq
-    vk_result["rotational_freq"] = float(np.mean(inst_freq))
-
-    orders = np.arange(1, max_order + 1, dtype=float)
-    order_amplitudes = np.zeros(max_order)
-    order_envelopes: Dict[int, np.ndarray] = {}
-
-    nyquist = sampling_rate / 2
-
-    for i, order in enumerate(orders):
-        center_freq = order * inst_freq
-        avg_center = np.mean(center_freq)
-
-        bw = avg_center * bandwidth_ratio
-        low = max((avg_center - bw / 2) / nyquist, 0.01)
-        high = min((avg_center + bw / 2) / nyquist, 0.99)
-
-        if low >= high or high <= 0.01:
-            order_amplitudes[i] = 0.0
-            order_envelopes[int(order)] = np.zeros(n)
-            continue
-
-        filter_order = min(4, max(1, int(sampling_rate / avg_center / 2)))
-        try:
-            sos = butter(filter_order, [low, high], btype="band", output="sos")
-            filtered = sosfiltfilt(sos, signal_data)
-        except Exception:
-            order_amplitudes[i] = 0.0
-            order_envelopes[int(order)] = np.zeros(n)
-            continue
-
-        analytic = hilbert(filtered)
-        envelope = np.abs(analytic)
-
-        order_amplitudes[i] = np.mean(envelope)
-        order_envelopes[int(order)] = envelope
-
-    vk_result["orders"] = orders
-    vk_result["order_amplitudes"] = order_amplitudes
-    vk_result["order_envelopes"] = order_envelopes
-
-    return vk_result
-
-
-# ============================================================
-# 第十一部分：基于故障机理的频带分析
-# ============================================================
-
 @dataclass(frozen=True)
 class FaultBandConfig:
     """故障频带配置。
@@ -1211,6 +1065,42 @@ FAULT_BAND_PRESETS: Dict[str, FaultBandConfig] = {
         high_freq_bands=(),
         orders_of_interest=(),
         detection_method="rms_trend",                 # RMS 趋势
+    ),
+    # ---- 冲击类：轴承故障 ----
+    # 文献：[R3] 轴承外圈断裂故障试验；[R7][R12] Kurtogram+包络谱轴承诊断
+    # BPFO/BPFI 需要轴承几何参数，此处用典型范围（4~8×f_r / 5~9×f_r）
+    # 用户可替换为精确值
+    "bearing_outer_race": FaultBandConfig(
+        name="轴承外圈故障（冲击类）",
+        low_freq_bands=(),
+        high_freq_bands=((3000.0, 8000.0),),         # 轴承外圈固有频率共振带 [R7][R12]
+        orders_of_interest=(4, 5, 6, 7, 8),          # BPFO ≈ 4~8×f_r 典型范围
+        detection_method="envelope_spectrum_snr",    # 包络谱特征频率信噪比
+    ),
+    "bearing_inner_race": FaultBandConfig(
+        name="轴承内圈故障（冲击类）",
+        low_freq_bands=(),
+        high_freq_bands=((3000.0, 8000.0),),         # 轴承内圈固有频率共振带 [R8]
+        orders_of_interest=(5, 6, 7, 8, 9),          # BPFI ≈ 5~9×f_r 典型范围
+        detection_method="envelope_spectrum_snr",    # 包络谱特征频率信噪比 + 转频边频验证
+    ),
+    # ---- 冲击类：气穴溃灭 ----
+    # 文献：[R5] 空化检测与故障诊断；[R6] 空化振动噪声综述
+    "cavitation": FaultBandConfig(
+        name="气穴溃灭（冲击类·随机）",
+        low_freq_bands=((10.0, 500.0),),             # 压力脉动低频段
+        high_freq_bands=((2000.0, 8000.0),),         # 宽频冲击能量 [R5]
+        orders_of_interest=(),                        # 无离散特征频率（随机冲击）
+        detection_method="broadband_noise",           # 高频底噪抬升 + 无周期性
+    ),
+    # ---- 低频周期类：斜盘磨损 ----
+    # 文献：[R4] 斜盘磨损振动特性；[R11] 斜盘局部缺陷动力学建模
+    "swash_plate_mechanical": FaultBandConfig(
+        name="斜盘磨损（低频周期力类）",
+        low_freq_bands=((10.0, 250.0),),             # 转频谐波区 [R4]
+        high_freq_bands=(),
+        orders_of_interest=(1, 2, 3),                 # 1×f_r, 2×f_r, 3×f_r
+        detection_method="order_amplitude",           # 转频谐波幅值
     ),
 }
 
@@ -1408,6 +1298,83 @@ def diagnose_by_fault_type(
         else:
             diagnosis["details"]["overall_rms"] = test_result["overall_rms"]
 
+    elif method == "envelope_spectrum_snr":
+        # 冲击类（轴承）：包络谱特征频率信噪比
+        # 原理：在包络谱上定位特征频率，计算其幅值相对于背景噪声的信噪比
+        # [R7] Kurtogram+包络谱轴承诊断；[R8] 包络谱+谱峭度联合诊断
+        if baseline_result and baseline_result.get("high_band_energies"):
+            ratios = {}
+            max_ratio = 0.0
+            for band_key, test_val in test_result["high_band_energies"].items():
+                base_val = baseline_result["high_band_energies"].get(band_key, 1e-10)
+                ratio = test_val / base_val if base_val > 0 else float("inf")
+                ratios[band_key] = ratio
+                max_ratio = max(max_ratio, ratio)
+            diagnosis["details"]["high_band_ratios"] = ratios
+            diagnosis["details"]["max_ratio"] = max_ratio
+
+            # 包络谱信噪比：特征频率幅值 / 包络谱中位数幅值
+            # 这是方案第四阶段强调的核心指标
+            env_snr = {}
+            for band_key, (env_freqs, env_mags) in test_result.get("envelope_spectra", {}).items():
+                if len(env_mags) == 0:
+                    continue
+                # 计算包络谱背景噪声水平（中位数）
+                noise_level = float(np.median(env_mags))
+                if noise_level < 1e-15:
+                    noise_level = 1e-15
+                # 找特征频率处的幅值（按 orders_of_interest 对应的频率）
+                if rotational_freq is not None and fault_config.orders_of_interest:
+                    peak_snrs = {}
+                    for order in fault_config.orders_of_interest:
+                        target_freq = order * rotational_freq
+                        freq_mask = (env_freqs >= target_freq - 5) & (env_freqs <= target_freq + 5)
+                        if np.any(freq_mask):
+                            peak_amp = float(np.max(env_mags[freq_mask]))
+                            peak_snrs[f"order_{order}_{target_freq:.0f}Hz"] = peak_amp / noise_level
+                    env_snr[band_key] = peak_snrs
+            diagnosis["details"]["envelope_spectrum_snr"] = env_snr
+
+            diagnosis["is_fault"] = max_ratio > energy_ratio_threshold
+            diagnosis["confidence"] = min(max_ratio / energy_ratio_threshold, 2.0)
+        else:
+            for band_key, val in test_result["high_band_energies"].items():
+                diagnosis["details"][band_key] = val
+
+    elif method == "broadband_noise":
+        # 冲击类（气穴）：高频底噪整体抬升，无离散特征频率
+        # 原理：气泡溃灭产生随机宽频冲击，无周期性，区别于松靴的 f_p 谐波
+        # [R5] 空化检测；[R6] 空化振动噪声综述
+        if baseline_result and baseline_result.get("high_band_energies"):
+            ratios = {}
+            max_ratio = 0.0
+            for band_key, test_val in test_result["high_band_energies"].items():
+                base_val = baseline_result["high_band_energies"].get(band_key, 1e-10)
+                ratio = test_val / base_val if base_val > 0 else float("inf")
+                ratios[band_key] = ratio
+                max_ratio = max(max_ratio, ratio)
+            diagnosis["details"]["high_band_ratios"] = ratios
+            diagnosis["details"]["max_ratio"] = max_ratio
+
+            # 与松靴的区分：气穴无周期性
+            # 检查包络谱中是否有突出的离散频率峰值
+            has_discrete_peak = False
+            for band_key, (env_freqs, env_mags) in test_result.get("envelope_spectra", {}).items():
+                if len(env_mags) == 0:
+                    continue
+                median_amp = float(np.median(env_mags))
+                max_amp = float(np.max(env_mags))
+                # 如果最大幅值远超中位数，说明有突出的离散频率（非气穴）
+                if median_amp > 0 and max_amp / median_amp > 5.0:
+                    has_discrete_peak = True
+            diagnosis["details"]["has_discrete_peak"] = has_discrete_peak
+            # 气穴判定：高频底噪抬升 + 无突出离散频率
+            diagnosis["is_fault"] = max_ratio > energy_ratio_threshold and not has_discrete_peak
+            diagnosis["confidence"] = min(max_ratio / energy_ratio_threshold, 2.0) if diagnosis["is_fault"] else 0.0
+        else:
+            for band_key, val in test_result["high_band_energies"].items():
+                diagnosis["details"][band_key] = val
+
     diagnosis["test_result"] = test_result
     return diagnosis
 
@@ -1522,8 +1489,6 @@ class OrderTrackingAnalyzer:
 # ============================================================
 
 
-import json
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -1788,6 +1753,84 @@ def _impulse_features(signal: np.ndarray, fs: float, config: dict) -> Dict[str, 
 
 
 # ============================================================
+# 5b. 故障特定频带特征
+# ============================================================
+
+def _fault_band_features(signal: np.ndarray, fs: float, config: dict) -> Dict[str, Any]:
+    """按故障类型提取敏感频带能量。
+
+    针对已归类的故障类型，从 FAULT_BAND_PRESETS 中读取频带配置，
+    提取每个故障类型的关键频带能量，作为诊断特征集的补充。
+
+    冲击类故障：高频共振带包络 RMS + 包络谱特征频率幅值
+    磨损类故障：低频带 FFT 能量
+    """
+    from .core import FAULT_BAND_PRESETS
+
+    signal = np.asarray(signal, dtype=float).reshape(-1)
+    nyq = fs / 2
+    f_r = config.get("speed_rpm", 1480) / 60
+    f_p = f_r * config.get("n_pistons", 7)
+
+    result = {}
+
+    for fault_key, fault_config in FAULT_BAND_PRESETS.items():
+        fault_result = {}
+
+        # 低频带能量
+        for (low, high) in fault_config.low_freq_bands:
+            lo = max(low, 1.0) / nyq
+            hi = min(high, nyq * 0.99) / nyq
+            if lo >= hi:
+                fault_result[f"low_{low:.0f}_{high:.0f}Hz"] = 0.0
+                continue
+            sos = butter(4, [lo, hi], btype="band", output="sos")
+            filtered = sosfiltfilt(sos, signal)
+            fault_result[f"low_{low:.0f}_{high:.0f}Hz"] = float(np.sqrt(np.mean(filtered ** 2)))
+
+        # 高频共振带包络 RMS
+        for (low, high) in fault_config.high_freq_bands:
+            lo = max(low, 1.0) / nyq
+            hi = min(high, nyq * 0.99) / nyq
+            if lo >= hi:
+                fault_result[f"env_{low:.0f}_{high:.0f}Hz"] = 0.0
+                continue
+            sos = butter(4, [lo, hi], btype="band", output="sos")
+            filtered = sosfiltfilt(sos, signal)
+            env = np.abs(hilbert(filtered))
+            env = env - np.mean(env)
+            fault_result[f"env_{low:.0f}_{high:.0f}Hz"] = float(np.sqrt(np.mean(env ** 2)))
+
+            # 包络谱中特征频率幅值
+            env_freqs, env_mags = compute_fft_spectrum(env, fs)
+            for order in fault_config.orders_of_interest:
+                target_f = order * f_r
+                if target_f > fs / 2.56:
+                    continue
+                idx = np.argmin(np.abs(env_freqs - target_f))
+                lo_idx = max(0, idx - 3)
+                hi_idx = min(len(env_mags), idx + 4)
+                peak_val = float(np.max(env_mags[lo_idx:hi_idx]))
+                fault_result[f"env_peak_{order}x_fr"] = peak_val
+
+        # 重点阶次幅值（从 FFT）
+        if fault_config.orders_of_interest:
+            freqs, mags = compute_fft_spectrum(signal, fs)
+            for order in fault_config.orders_of_interest:
+                target_f = order * f_r
+                if target_f > fs / 2.56:
+                    continue
+                idx = np.argmin(np.abs(freqs - target_f))
+                lo_idx = max(0, idx - 3)
+                hi_idx = min(len(mags), idx + 4)
+                fault_result[f"fft_peak_{order}x_fr"] = float(np.max(mags[lo_idx:hi_idx]))
+
+        result[fault_key] = fault_result
+
+    return result
+
+
+# ============================================================
 # 主提取函数
 # ============================================================
 
@@ -1818,6 +1861,7 @@ def extract_features(
         "freq_domain": _freq_features(signal, sampling_rate),
         "order_domain": _order_features(signal, sampling_rate, config),
         "impulse_domain": _impulse_features(signal, sampling_rate, config),
+        "fault_band_domain": _fault_band_features(signal, sampling_rate, config),
     }
 
 
@@ -1858,17 +1902,7 @@ def extract_multi_axis_features(
     }
 
 
-def save_features(features: Dict[str, Any], filepath: str) -> None:
-    """保存特征到 JSON 文件。"""
-    Path(filepath).parent.mkdir(parents=True, exist_ok=True)
-    with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(features, f, indent=2, ensure_ascii=False)
 
-
-def load_features(filepath: str) -> Dict[str, Any]:
-    """从 JSON 文件加载特征。"""
-    with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 # ============================================================
@@ -1876,8 +1910,6 @@ def load_features(filepath: str) -> Dict[str, Any]:
 # ============================================================
 
 
-import json
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -1907,348 +1939,9 @@ def _flatten_features(obj: Any, prefix: str = "") -> Dict[str, float]:
     return flat
 
 
-def _is_meta_key(key: str) -> bool:
-    """判断是否是元信息字段（不参与对比）。"""
-    meta_prefixes = ["meta.", "axes.meta.", "order_domain.cot_rotational_freq",
-                     "order_domain.tot_rotational_freq"]
-    return any(key.startswith(p) or key == p.replace("axes.", "") for p in meta_prefixes)
-
-
 # ============================================================
-# 核心：特征变化率计算
-# ============================================================
+# 基于故障物理机理的分类诊断
 
-def compute_feature_changes(
-    normal_features: Dict[str, Any],
-    fault_features: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    """计算每个特征的变化率，按变化幅度排序。
-
-    返回: [{path, normal_value, fault_value, change_ratio, change_type}, ...]
-    按 |change_ratio| 降序排列。
-    """
-    # 展平（只取单轴特征，取 X 轴作为主分析轴）
-    normal_flat = {}
-    fault_flat = {}
-
-    # 多轴特征：展平每轴
-    if "axes" in normal_features:
-        for axis, axis_feat in normal_features["axes"].items():
-            for k, v in _flatten_features(axis_feat).items():
-                normal_flat[f"axes.{axis}.{k}"] = v
-    if "axes" in fault_features:
-        for axis, axis_feat in fault_features["axes"].items():
-            for k, v in _flatten_features(axis_feat).items():
-                fault_flat[f"axes.{axis}.{k}"] = v
-
-    # 轴间关系
-    if "cross_axis" in normal_features:
-        for k, v in _flatten_features(normal_features["cross_axis"]).items():
-            normal_flat[f"cross_axis.{k}"] = v
-    if "cross_axis" in fault_features:
-        for k, v in _flatten_features(fault_features["cross_axis"]).items():
-            fault_flat[f"cross_axis.{k}"] = v
-
-    # 计算变化率
-    changes = []
-    for key in normal_flat:
-        if _is_meta_key(key):
-            continue
-        if key not in fault_flat:
-            continue
-
-        n_val = normal_flat[key]
-        f_val = fault_flat[key]
-
-        # 跳过无效值
-        if np.isnan(n_val) or np.isnan(f_val):
-            continue
-
-        # 计算变化率
-        if abs(n_val) > 1e-10:
-            ratio = f_val / n_val
-            change_type = "ratio"
-        else:
-            # 正常值接近 0，用绝对差值
-            ratio = f_val - n_val
-            change_type = "diff"
-
-        changes.append({
-            "path": key,
-            "normal_value": round(n_val, 8),
-            "fault_value": round(f_val, 8),
-            "change_ratio": round(ratio, 4),
-            "change_type": change_type,
-            "abs_change": round(abs(ratio - 1) if change_type == "ratio" else abs(ratio), 4),
-        })
-
-    # 按变化幅度降序排列
-    changes.sort(key=lambda x: x["abs_change"], reverse=True)
-    return changes
-
-
-# ============================================================
-# 故障模式匹配
-# ============================================================
-
-# 已知故障模式的特征变化特征（基于物理机理 + 实测数据）
-# 每个模式定义：哪些特征会变、变化方向、典型变化幅度
-FAULT_PATTERNS = {
-    "loose_slipper": {
-        "name": "松靴/滑靴脱落",
-        "mechanism": "柱塞球头松动，周期性撞击斜盘，冲击力激发结构共振",
-        # 不绑定具体轴：找所有轴中变化最大的峭度
-        # 物理本质：冲击类故障 → 峭度/波峰因子增大 → 包络谱能量增大
-        "signature": [
-            # 任意轴峭度增大（取所有轴的最大值）
-            ("max_axis.kurtosis", "increase", 3.0),
-            # 任意轴角域峭度增大
-            ("max_axis.angle_domain_kurtosis", "increase", 2.0),
-            # 包络谱能量增大（共振解调）
-            ("max_axis.envelope_rms", "increase", 1.5),
-            # 阶次能量也增大（冲击的调制效应）
-            ("max_axis.order_mean", "increase", 1.5),
-        ],
-        "min_signature_matches": 2,
-    },
-    "valve_plate_wear": {
-        "name": "配流盘磨损",
-        "mechanism": "配流盘端面磨损，内泄漏增大，流量/压力脉动增大",
-        # 物理本质：低频周期力 → 低频能量增大 → 阶次幅值均匀增大
-        "signature": [
-            ("max_axis.rms", "increase", 1.5),
-            ("max_axis.order_mean", "increase", 1.5),
-            ("max_axis.low_freq_energy", "increase", 1.5),
-            # 高频不应显著增大（非冲击类）
-            ("max_axis.high_freq_energy", "neutral", 0.5),
-        ],
-        "min_signature_matches": 2,
-    },
-    "piston_wear": {
-        "name": "柱塞-缸孔磨损",
-        "mechanism": "柱塞与缸孔间隙增大，内泄漏增大，流量脉动加剧",
-        # 物理本质：柱塞频率谐波增大 + 泄漏脉动
-        "signature": [
-            ("max_axis.fp_amplitude", "increase", 1.5),
-            ("max_axis.2fp_amplitude", "increase", 1.5),
-            ("max_axis.mid_freq_energy", "increase", 1.3),
-            ("max_axis.low_freq_energy", "increase", 1.3),
-        ],
-        "min_signature_matches": 2,
-    },
-}
-
-
-# 通用特征名到实际路径后缀的映射
-_FEATURE_MAP = {
-    "kurtosis": "time_domain.kurtosis",
-    "crest_factor": "time_domain.crest_factor",
-    "rms": "time_domain.rms",
-    "angle_domain_kurtosis": "impulse_domain.angle_domain_kurtosis",
-    "envelope_rms": "impulse_domain.envelope_bands.6k_7_5kHz.rms",
-    "order_mean": "order_domain.tot_order_mean",
-    "low_freq_energy": "freq_domain.band_energies.band_100_250Hz",
-    "high_freq_energy": "freq_domain.band_energies.band_4000_6000Hz",
-    "mid_freq_energy": "freq_domain.band_energies.band_250_500Hz",
-    "fp_amplitude": "order_domain.tot_key_orders.7x_fp",
-    "2fp_amplitude": "order_domain.tot_key_orders.14x_2fp",
-}
-
-
-def _resolve_max_axis_feature(all_changes: List[Dict[str, Any]], feature_name: str) -> Optional[Dict[str, Any]]:
-    """找所有轴中变化最大的特征。
-
-    支持通用特征名（如 "kurtosis"）或完整后缀（如 "time_domain.kurtosis"）。
-    自动在所有轴（X/Y/Z）中搜索，返回变化最大的那个。
-    """
-    # 先查映射表
-    suffix = _FEATURE_MAP.get(feature_name, feature_name)
-    target = "axes."
-    full_suffix = f".{suffix}"
-    candidates = [
-        c for c in all_changes
-        if c["path"].startswith(target) and c["path"].endswith(full_suffix)
-    ]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda x: x["abs_change"])
-
-
-def match_fault_pattern(
-    changes: List[Dict[str, Any]],
-    pattern: Dict[str, Any],
-) -> Dict[str, Any]:
-    """将特征变化与已知故障模式匹配。
-
-    支持 "max_axis.xxx" 路径：自动找所有轴中变化最大的。
-    """
-    change_dict = {c["path"]: c for c in changes}
-
-    matched_features = []
-    unmatched_features = []
-    total_score = 0.0
-
-    for feat_suffix, expected_direction, weight in pattern["signature"]:
-        # 解析特征路径
-        if feat_suffix.startswith("max_axis."):
-            # 找所有轴中变化最大的
-            suffix = feat_suffix[len("max_axis."):]
-            change = _resolve_max_axis_feature(changes, suffix)
-            if change is None:
-                unmatched_features.append({"path": feat_suffix, "reason": "特征不存在"})
-                continue
-            actual_path = change["path"]
-            ratio = change["change_ratio"]
-        else:
-            if feat_suffix not in change_dict:
-                unmatched_features.append({"path": feat_suffix, "reason": "特征不存在"})
-                continue
-            change = change_dict[feat_suffix]
-            actual_path = feat_suffix
-            ratio = change["change_ratio"]
-
-        # 判断变化方向是否符合预期
-        if expected_direction == "increase":
-            direction_match = ratio > 1.2
-            actual_direction = "增大" if ratio > 1 else "减小"
-        elif expected_direction == "decrease":
-            direction_match = ratio < 0.8
-            actual_direction = "减小" if ratio < 1 else "增大"
-        else:  # neutral
-            direction_match = 0.8 < ratio < 1.2
-            actual_direction = "基本不变"
-
-        if direction_match:
-            score = weight * min(abs(ratio - 1) + 1, 3.0)
-            total_score += score
-            matched_features.append({
-                "path": actual_path,
-                "expected": expected_direction,
-                "actual": actual_direction,
-                "ratio": ratio,
-                "score": round(score, 2),
-            })
-        else:
-            unmatched_features.append({
-                "path": actual_path,
-                "expected": expected_direction,
-                "actual": actual_direction,
-                "ratio": ratio,
-            })
-
-    is_matched = len(matched_features) >= pattern["min_signature_matches"]
-
-    return {
-        "matched": is_matched,
-        "score": round(total_score, 2),
-        "matched_count": f"{len(matched_features)}/{len(pattern['signature'])}",
-        "matched_features": matched_features,
-        "unmatched_features": unmatched_features,
-    }
-
-
-# ============================================================
-# 主诊断函数
-# ============================================================
-
-def diagnose_by_sensitivity(
-    normal_features: Dict[str, Any],
-    fault_features: Dict[str, Any],
-    top_n: int = 10,
-) -> Dict[str, Any]:
-    """基于特征变化率的诊断。
-
-    流程：
-    1. 计算所有特征的变化率
-    2. 排序，找出变化最大的 top_n 个特征
-    3. 与已知故障模式匹配
-    4. 输出诊断结论 + 敏感指标
-
-    参数:
-        normal_features: 正常信号的特征字典
-        fault_features: 故障信号的特征字典
-        top_n: 展示变化最大的前 N 个特征
-    """
-    # Step 1: 计算所有特征的变化率
-    changes = compute_feature_changes(normal_features, fault_features)
-
-    # Step 2: 取变化最大的 top_n
-    top_changes = changes[:top_n]
-
-    # Step 3: 与已知故障模式匹配
-    pattern_results = []
-    for pattern_key, pattern in FAULT_PATTERNS.items():
-        result = match_fault_pattern(changes, pattern)
-        result["fault_key"] = pattern_key
-        result["fault_name"] = pattern["name"]
-        result["mechanism"] = pattern["mechanism"]
-        pattern_results.append(result)
-
-    # 按得分排序
-    pattern_results.sort(key=lambda x: x["score"], reverse=True)
-
-    # Step 4: 生成结论
-    detected = [p for p in pattern_results if p["matched"]]
-
-    if not detected:
-        conclusion = "未匹配到已知故障模式，可能是未知故障"
-    elif len(detected) == 1:
-        conclusion = f"匹配到: {detected[0]['fault_name']}（得分 {detected[0]['score']}）"
-    else:
-        conclusion = f"匹配到多种可能故障，最可能是: {detected[0]['fault_name']}（得分 {detected[0]['score']}）"
-
-    return {
-        "conclusion": conclusion,
-        "detected_faults": [d["fault_name"] for d in detected],
-        "top_sensitive_features": top_changes,
-        "pattern_matching": pattern_results,
-        "total_features_compared": len(changes),
-    }
-
-
-def diagnose_and_report(
-    normal_features: Dict[str, Any],
-    fault_features: Dict[str, Any],
-    top_n: int = 10,
-) -> str:
-    """诊断并输出可读的报告文本。"""
-    result = diagnose_by_sensitivity(normal_features, fault_features, top_n)
-
-    lines = []
-    lines.append("=" * 60)
-    lines.append("  诊断报告（基于特征变化率）")
-    lines.append("=" * 60)
-    lines.append("")
-    lines.append(f"结论: {result['conclusion']}")
-    lines.append(f"对比特征总数: {result['total_features_compared']}")
-    lines.append(f"检测到的故障: {result['detected_faults'] if result['detected_faults'] else '无'}")
-
-    lines.append("")
-    lines.append(f"--- 变化最大的 {len(result['top_sensitive_features'])} 个特征 ---")
-    lines.append(f"{'排名':>4} | {'特征路径':>50} | {'正常值':>12} | {'故障值':>12} | {'变化率':>8} | {'方向':>6}")
-    lines.append("-" * 100)
-
-    for i, feat in enumerate(result["top_sensitive_features"]):
-        ratio = feat["change_ratio"]
-        if feat["change_type"] == "ratio":
-            direction = "↑↑↑" if ratio > 2 else "↑↑" if ratio > 1.5 else "↑" if ratio > 1 else "↓" if ratio < 1 else "="
-            ratio_str = f"{ratio:.2f}x"
-        else:
-            direction = "↑" if ratio > 0 else "↓"
-            ratio_str = f"{ratio:+.4f}"
-
-        lines.append(f"  {i+1:>2} | {feat['path']:>50} | {feat['normal_value']:>12.6f} | {feat['fault_value']:>12.6f} | {ratio_str:>8} | {direction}")
-
-    lines.append("")
-    lines.append("--- 故障模式匹配 ---")
-    for p in result["pattern_matching"]:
-        status = "✅ 匹配" if p["matched"] else "❌ 不匹配"
-        lines.append(f"  {p['fault_name']}: {status} (得分={p['score']}, 匹配={p['matched_count']})")
-        if p["matched_features"]:
-            for mf in p["matched_features"]:
-                lines.append(f"    ✅ {mf['path']}: {mf['actual']} ({mf['ratio']:.2f}x)")
-
-    return "\n".join(lines)
 
 
 # ============================================================
@@ -2390,15 +2083,79 @@ FAULT_DIAGNOSTICS: Dict[str, FaultDiagnosticConfig] = {
 
     # ---- 斜盘磨损 ----
     # 物理机理：斜盘摩擦面磨损 → 柱塞运动不平稳 → 轴向力波动 → 转频谐波增大
+    # 文献：[R4] 斜盘磨损振动特性；[R11] 斜盘局部缺陷动力学建模
     "swash_plate_wear": FaultDiagnosticConfig(
         name="斜盘磨损",
-        mechanism="斜盘摩擦面磨损，柱塞运动不平稳，轴向力波动",
+        mechanism="斜盘摩擦面磨损，柱塞运动不平稳，轴向力波动 [R4][R11]",
         primary_features=(
             ("axes.Z.order_domain.tot_key_orders.7x_fp", 1.3, "above"),
             ("axes.Z.time_domain.rms", 1.3, "above"),
         ),
         secondary_features=(
             ("axes.Z.freq_domain.band_energies.band_0_100Hz", 1.2, "above"),
+        ),
+        combination_logic="all",
+    ),
+
+    # ---- 轴承外圈故障 ----
+    # 物理机理：外圈滚道点蚀 → 滚动体经过剥落坑产生冲击 → 激发外圈固有频率
+    # 包络谱特征：BPFO 及其谐波，无转频边频 [R3][R7][R8][R12]
+    "bearing_outer_race": FaultDiagnosticConfig(
+        name="轴承外圈故障",
+        mechanism="外圈滚道点蚀/剥落，滚动体经过剥落坑产生冲击，激发外圈固有频率 [R3][R7]",
+        primary_features=(
+            # 冲击类核心特征：峭度增大
+            ("axes.Z.time_domain.kurtosis", 2.0, "above"),
+            # 高频共振带能量增大
+            ("axes.Z.impulse_domain.envelope_bands.6k_7_5kHz.rms", 1.5, "above"),
+        ),
+        secondary_features=(
+            # 波峰因子增大（但弱于松靴）
+            ("axes.Z.time_domain.crest_factor", 1.2, "above"),
+            # 包络谱峰值频率应落在 BPFO 范围（需人工确认）
+            ("axes.Z.impulse_domain.envelope_bands.6k_7_5kHz.peak_amp", 1.5, "above"),
+        ),
+        combination_logic="any",
+    ),
+
+    # ---- 轴承内圈故障 ----
+    # 物理机理：内圈滚道点蚀 → 冲击频率 = BPFI，受转频调制
+    # 包络谱特征：BPFI 及其谐波，每个谐波两侧有 ±f_r 边频 [R4][R8]
+    "bearing_inner_race": FaultDiagnosticConfig(
+        name="轴承内圈故障",
+        mechanism="内圈滚道点蚀/剥落，冲击频率受转频调制，包络谱有转频边频 [R4][R8]",
+        primary_features=(
+            # 冲击类核心特征：峭度增大
+            ("axes.Z.time_domain.kurtosis", 2.0, "above"),
+            # 高频共振带能量增大
+            ("axes.Z.impulse_domain.envelope_bands.6k_7_5kHz.rms", 1.5, "above"),
+        ),
+        secondary_features=(
+            # 角域峭度（内圈随轴旋转，角域冲击更明显）
+            ("axes.Z.impulse_domain.angle_domain_kurtosis", 1.5, "above"),
+            # 包络谱峰值幅值
+            ("axes.Z.impulse_domain.envelope_bands.6k_7_5kHz.peak_amp", 1.5, "above"),
+        ),
+        combination_logic="any",
+    ),
+
+    # ---- 气穴溃灭 ----
+    # 物理机理：气泡溃灭产生随机宽频冲击，无明确特征频率 [R5][R6]
+    # 与松靴的区别：气穴无周期性，松靴有 f_p 周期
+    "cavitation": FaultDiagnosticConfig(
+        name="气穴溃灭",
+        mechanism="气泡溃灭产生随机宽频冲击，高频底噪抬升，无离散特征频率 [R5][R6]",
+        primary_features=(
+            # 高频底噪整体抬升（宽频激励）
+            ("axes.Z.freq_domain.band_energies.band_4000_6000Hz", 1.5, "above"),
+            # 谱熵增大（能量更分散，区别于松靴的集中冲击）
+            ("axes.Z.freq_domain.spectral_entropy", 1.1, "above"),
+        ),
+        secondary_features=(
+            # 峭度有增大但弱于松靴
+            ("axes.Z.time_domain.kurtosis", 1.3, "above"),
+            # 全频带 RMS 增大
+            ("axes.Z.time_domain.rms", 1.2, "above"),
         ),
         combination_logic="all",
     ),
@@ -2556,4 +2313,240 @@ def diagnose_by_fault_pattern(
         "conclusion": conclusion,
         "detected_faults": detected_faults,
         "all_results": all_results,
+    }
+
+
+# ============================================================
+# 统计阈值校准与模式切换诊断
+# ============================================================
+
+def calibrate_statistical_thresholds(
+    normal_features_list: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, float]]:
+    """用多个正常样本计算每个特征的统计阈值。
+
+    参数:
+        normal_features_list: 正常样本的特征字典列表
+            每个元素是 extract_multi_axis_features() 的输出
+
+    返回: {"axes.X.time_domain.kurtosis": {"mean": 5.2, "std": 1.1, "3sigma": 8.5, "p95": 7.0, "n": 97}, ...}
+    """
+    # 展平所有样本的特征
+    all_flat = [_flatten_features(f) for f in normal_features_list]
+
+    # 收集所有特征路径
+    all_paths = set()
+    for f in all_flat:
+        all_paths.update(f.keys())
+
+    result = {}
+    for path in sorted(all_paths):
+        values = [f[path] for f in all_flat if path in f and not np.isnan(f[path])]
+        if len(values) < 2:
+            continue
+        arr = np.array(values)
+        mean = float(np.mean(arr))
+        std = float(np.std(arr, ddof=1))
+        p95 = float(np.percentile(arr, 95))
+        result[path] = {
+            "mean": mean,
+            "std": std,
+            "3sigma": mean + 3 * std,
+            "p95": p95,
+            "n": len(values),
+        }
+    return result
+
+
+def calibrate_from_signal(
+    normal_signal: np.ndarray,
+    sampling_rate: float = 20000.0,
+    window_size: int = 2048,
+    overlap_ratio: float = 0.5,
+    config: Optional[dict] = None,
+) -> Dict[str, Dict[str, float]]:
+    """从单段正常信号中切分伪样本，计算统计阈值。
+
+    用滑动窗口将长信号切成多段，每段提取特征，作为独立样本。
+    """
+    segments = sliding_window_segments(normal_signal, window_size, overlap_ratio)
+    if len(segments) < 3:
+        raise ValueError(f"信号太短，只能切出 {len(segments)} 段，至少需要 3 段")
+
+    features_list = []
+    for seg in segments:
+        feat = extract_multi_axis_features({"X": seg}, sampling_rate, config)
+        features_list.append(feat)
+
+    return calibrate_statistical_thresholds(features_list)
+
+
+def diagnose_single_fault_statistical(
+    fault_features: Dict[str, Any],
+    fault_config: FaultDiagnosticConfig,
+    threshold_config: Dict[str, Dict[str, float]],
+    mode: str = "3sigma",
+) -> Dict[str, Any]:
+    """用统计阈值诊断单种故障。
+
+    参数:
+        fault_features: 故障信号特征
+        fault_config: 故障诊断配置
+        threshold_config: calibrate_statistical_thresholds 的输出
+        mode: "3sigma" 或 "p95"
+    """
+    thresh_key = mode  # "3sigma" 或 "p95"
+
+    primary_results = []
+    for feat_path, ratio_threshold, direction in fault_config.primary_features:
+        fault_val = _get_feature_value(fault_features, feat_path)
+
+        # 查找统计阈值
+        stat = threshold_config.get(feat_path)
+        if stat is not None:
+            thresh = stat[thresh_key]
+            if direction == "above":
+                triggered = fault_val > thresh
+            else:
+                triggered = fault_val < thresh
+            primary_results.append({
+                "feature": feat_path,
+                "fault_value": fault_val,
+                "threshold": thresh,
+                "threshold_mode": mode,
+                "mean": stat["mean"],
+                "std": stat["std"],
+                "direction": direction,
+                "triggered": triggered,
+            })
+        else:
+            # 没有统计阈值，回退到固定比值
+            primary_results.append({
+                "feature": feat_path,
+                "fault_value": fault_val,
+                "threshold": ratio_threshold,
+                "threshold_mode": "fallback_fixed",
+                "direction": direction,
+                "triggered": False,
+            })
+
+    secondary_results = []
+    for feat_path, ratio_threshold, direction in fault_config.secondary_features:
+        fault_val = _get_feature_value(fault_features, feat_path)
+        stat = threshold_config.get(feat_path)
+        if stat is not None:
+            thresh = stat[thresh_key]
+            if direction == "above":
+                triggered = fault_val > thresh
+            else:
+                triggered = fault_val < thresh
+            secondary_results.append({
+                "feature": feat_path,
+                "fault_value": fault_val,
+                "threshold": thresh,
+                "threshold_mode": mode,
+                "mean": stat["mean"],
+                "std": stat["std"],
+                "direction": direction,
+                "triggered": triggered,
+            })
+        else:
+            secondary_results.append({
+                "feature": feat_path,
+                "fault_value": fault_val,
+                "threshold": ratio_threshold,
+                "threshold_mode": "fallback_fixed",
+                "direction": direction,
+                "triggered": False,
+            })
+
+    # 组合判定
+    primary_triggered = [r["triggered"] for r in primary_results]
+    if fault_config.combination_logic == "any":
+        is_fault = any(primary_triggered)
+    elif fault_config.combination_logic == "all":
+        is_fault = all(primary_triggered)
+    else:
+        is_fault = any(primary_triggered)
+
+    primary_count = sum(primary_triggered)
+    total_primary = len(primary_results)
+    confidence = (primary_count / total_primary) if total_primary > 0 else 0.0
+
+    return {
+        "fault_type": fault_config.name,
+        "mechanism": fault_config.mechanism,
+        "is_fault": is_fault,
+        "confidence": round(confidence, 2),
+        "primary_features": primary_results,
+        "secondary_features": secondary_results,
+        "primary_triggered_count": f"{primary_count}/{total_primary}",
+        "threshold_mode": mode,
+    }
+
+
+def diagnose_by_fault_pattern_statistical(
+    fault_features: Dict[str, Any],
+    threshold_config: Dict[str, Dict[str, float]],
+    mode: str = "3sigma",
+) -> Dict[str, Any]:
+    """用统计阈值遍历所有故障类型。"""
+    all_results = []
+    for fault_key, fault_config in FAULT_DIAGNOSTICS.items():
+        result = diagnose_single_fault_statistical(
+            fault_features, fault_config, threshold_config, mode
+        )
+        result["fault_key"] = fault_key
+        all_results.append(result)
+
+    triggered = [r for r in all_results if r["is_fault"]]
+    if not triggered:
+        conclusion = "未检测到已知故障模式"
+        detected_faults = []
+    elif len(triggered) == 1:
+        conclusion = f"检测到: {triggered[0]['fault_type']}"
+        detected_faults = [triggered[0]["fault_type"]]
+    else:
+        triggered.sort(key=lambda x: x["confidence"], reverse=True)
+        conclusion = f"检测到多种可能故障，最可能是: {triggered[0]['fault_type']}"
+        detected_faults = [t["fault_type"] for t in triggered]
+
+    return {
+        "conclusion": conclusion,
+        "detected_faults": detected_faults,
+        "all_results": all_results,
+    }
+
+
+def compare_threshold_modes(
+    normal_signal: np.ndarray,
+    fault_features: Dict[str, Any],
+    normal_features: Dict[str, Any],
+    sampling_rate: float = 20000.0,
+) -> Dict[str, Any]:
+    """对比三种阈值模式的诊断结果。
+
+    返回: {"fixed": {...}, "3sigma": {...}, "p95": {...}}
+    """
+    # 模式 A：固定比值（原有方法）
+    result_fixed = diagnose_by_fault_pattern(fault_features, normal_features)
+
+    # 计算统计阈值
+    thresh_config = calibrate_from_signal(normal_signal, sampling_rate)
+
+    # 模式 B：3σ
+    result_3sigma = diagnose_by_fault_pattern_statistical(
+        fault_features, thresh_config, mode="3sigma"
+    )
+
+    # 模式 C：P95
+    result_p95 = diagnose_by_fault_pattern_statistical(
+        fault_features, thresh_config, mode="p95"
+    )
+
+    return {
+        "fixed": result_fixed,
+        "3sigma": result_3sigma,
+        "p95": result_p95,
+        "threshold_config": thresh_config,
     }

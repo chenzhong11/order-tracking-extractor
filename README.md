@@ -1,4 +1,4 @@
-# 阶次分析特征提取封装包 v7.22
+# 阶次分析特征提取封装包 v7.23
 
 > 柱塞泵振动信号的阶次分析、特征提取与故障诊断
 
@@ -8,9 +8,9 @@
 
 | 项目 | 值 |
 |------|-----|
-| 包版本 | 7.22 |
+| 包版本 | 7.23 |
 | 算法编号 | order_tracking_v2 |
-| 算法版本 | A-7.22 |
+| 算法版本 | A-7.23 |
 | 特征字段版本 | 2026.07 |
 
 ## 安装
@@ -19,41 +19,22 @@
 pip install -e . -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-## 功能模块（单文件集成）
-
-所有算法在 `order_tracking_extractor/core.py` 中，通过 `__init__.py` 统一导出。
+## 功能模块
 
 | 功能 | 说明 |
 |------|------|
-| 阶次分析 | COT / TOT / VK 三种方法 |
-| 特征提取 | 时域 / 频域 / 阶次域 / 冲击域 / 轴间关系 |
-| 阈值标定 | 3σ / 百分位数 / 滑动窗口 |
-| 数据驱动诊断 | 基于特征变化率的敏感特征匹配 |
-| 物理机理诊断 | 基于故障物理的分类诊断（松靴/配流盘/柱塞/斜盘） |
-| 频带诊断 | 按故障类型的目标频带能量分析 |
+| 阶次分析 | COT / TOT 两种方法 |
+| 特征提取 | 时域 / 频域 / 阶次域 / 冲击域 / 故障频带域 / 轴间关系 |
+| 物理机理诊断 | 7 种故障类型（松靴/配流盘/柱塞/斜盘/轴承内外圈/气穴） |
+| 统计阈值校准 | 3σ / P95，基于滑动窗口伪样本 |
+| 诊断报告 | 一键生成综合报告图（非均匀横轴 + 峰值标注 + 诊断依据） |
 
 ## 快速使用
 
-### 1. 阶次分析
+### 1. 特征提取
 
 ```python
-from order_tracking_extractor import OrderTrackingConfig, OrderTrackingAnalyzer
-import numpy as np
-
-signal = np.loadtxt("vibration_data.txt")
-
-config = OrderTrackingConfig(sampling_rate=20000.0, max_order=15, method="cot")
-analyzer = OrderTrackingAnalyzer(config)
-result = analyzer.analyze_cot(signal)
-
-print(result["order_amplitudes"])
-print(result["order_energies"])
-```
-
-### 2. 特征提取
-
-```python
-from order_tracking_extractor import extract_multi_axis_features, save_features
+from order_tracking_extractor import extract_multi_axis_features
 
 signals = {
     "X": np.loadtxt("vibration_x.txt"),
@@ -62,80 +43,72 @@ signals = {
 }
 
 features = extract_multi_axis_features(signals, sampling_rate=20000.0)
-save_features(features, "features.json")
+# 输出: axes.{X,Y,Z}.{time_domain, freq_domain, order_domain, impulse_domain, fault_band_domain}
+#       cross_axis.{rms_ratio, kurtosis_diff, ...}
 ```
 
-### 3. 故障诊断（物理机理）
+### 2. 故障诊断（机理法）
 
 ```python
-from order_tracking_extractor import load_features, diagnose_by_fault_pattern
+from order_tracking_extractor import diagnose_by_fault_pattern
 
-normal_feat = load_features("features_normal.json")
-fault_feat = load_features("features_fault.json")
-
-result = diagnose_by_fault_pattern(fault_feat, normal_feat)
+result = diagnose_by_fault_pattern(fault_features, normal_features)
 print(result["conclusion"])        # 一句话结论
 print(result["detected_faults"])   # 触发的故障类型
-# 详细结果在 result["all_results"] 中，每个故障含 primary_features / secondary_features
+# 详细结果在 result["all_results"]，每个故障含 primary_features / secondary_features
 ```
 
-### 4. 阈值标定与诊断
+### 3. 统计阈值诊断
 
 ```python
-from order_tracking_extractor import OrderTrackingAnalyzer
+from order_tracking_extractor import calibrate_from_signal, compare_threshold_modes
 
-config = OrderTrackingConfig(sampling_rate=20000.0, method="cot")
-analyzer = OrderTrackingAnalyzer(config)
+# 从正常信号计算统计阈值（滑动窗口切分伪样本）
+thresh_config = calibrate_from_signal(normal_signal, sampling_rate=20000.0)
 
-# 标定
-cal_result = analyzer.calibrate_thresholds(healthy_signal)
-
-# 诊断
-diag = analyzer.diagnose(test_signal, cal_result)
-print(diag["is_fault_3sigma"])
+# 三种模式对比
+result = compare_threshold_modes(normal_signal, fault_features, normal_features, 20000.0)
+# result["fixed"]  — 固定比值阈值（原有方法）
+# result["3sigma"] — 3σ 统计阈值
+# result["p95"]    — P95 统计阈值
 ```
 
-## 设备参数
+### 4. 诊断报告
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| 柱塞数 | 7 | 轴向柱塞泵柱塞数 |
-| 转速 | 1480 RPM | 额定转速 |
-| 采样率 | 20000 Hz | 振动信号采样率 |
-| 采样时长 | 10 s | 单次采集时长 |
+```python
+from order_tracking_extractor import generate_report_from_signals
 
-## 输出字段
+normal_signals = {"X": nx, "Y": ny, "Z": nz}
+fault_signals = {"X": fx, "Y": fy, "Z": fz}
 
-### 阶次分析结果
+path, summary = generate_report_from_signals(
+    normal_signals, fault_signals,
+    sampling_rate=20000.0, rotational_freq=24.67, n_pistons=7,
+    output_path="diagnostic_report.png",
+)
+```
 
-| 字段 | 说明 |
-|------|------|
-| `method` | 分析方法（COT/TOT） |
-| `orders` | 阶次轴 [1, 2, ..., max_order] |
-| `order_amplitudes` | 各阶次幅值 |
-| `order_energies` | 各阶次能量 |
-| `rotational_freq` | 平均转频 Hz |
+## 故障类型
 
-### 特征字典
+| 故障 | 类别 | 核心特征 | 检测方法 |
+|------|------|----------|----------|
+| 松靴/滑靴脱落 | 冲击 | Z轴峭度 + 角域峭度 | 高频共振带包络 |
+| 配流盘磨损 | 低频周期 | 低频带能量 + 7阶次幅值 | 阶次幅值比 |
+| 柱塞-缸孔磨损 | 低频周期 | 7阶次 + 14阶次幅值 | 阶次幅值比 |
+| 斜盘磨损 | 低频周期 | 转频谐波 | 阶次幅值比 |
+| 轴承外圈故障 | 冲击 | 峭度 + 高频包络 RMS | 包络谱信噪比 |
+| 轴承内圈故障 | 冲击 | 峭度 + 高频包络 RMS | 包络谱信噪比 |
+| 气穴溃灭 | 冲击(随机) | 高频底噪 + 谱熵 | 宽频底噪抬升 |
 
-| 维度 | 特征数 | 内容 |
-|------|--------|------|
-| 时域 | 11 | RMS、峰值、峭度、波峰因子等 |
-| 频域 | 9+3 | 频带能量、频谱质心、频谱熵 |
-| 阶次域 | 15+15+4 | 各阶次幅值、重点阶次(f_p, 2f_p) |
-| 冲击域 | 4+5 | 包络谱、角域峭度/波峰因子 |
-| 轴间关系 | 9 | 三轴 RMS 比、峭度差、峰值比 |
+## 设备参数（默认）
 
-### 故障诊断输出
-
-| 字段 | 说明 |
-|------|------|
-| `conclusion` | 一句话结论 |
-| `detected_faults` | 触发的故障类型列表 |
-| `is_fault` | 是否触发该故障 |
-| `confidence` | 置信度（0~2） |
-| `primary_features` | 主判定特征（含 ratio/threshold/triggered） |
-| `mechanism` | 物理机理描述 |
+| 参数 | 值 |
+|------|-----|
+| 柱塞数 | 7 |
+| 转速 | 1480 RPM |
+| 转频 $f_r$ | 24.67 Hz |
+| 柱塞通过频率 $f_p$ | 172.67 Hz ($7 \times f_r$) |
+| 采样率 | 20 kHz |
 
 ## 目录结构
 
@@ -145,36 +118,32 @@ order-tracking-extractor/
 ├── README.md
 ├── CHANGELOG.md
 ├── order_tracking_extractor/
-│   ├── __init__.py              # 统一导出
-│   └── core.py                  # 全部算法（单文件集成）
+│   ├── __init__.py
+│   ├── core.py                  # 全部算法
+│   └── diagnostic_report.py     # 诊断报告可视化
 ├── examples/
-│   ├── generate_fault_signals.py   # 合成信号生成器
-│   ├── validate_signals.py         # 合成信号正确性验证（16项）
-│   ├── validate_algorithm.py       # 算法有效性验证（49项）
+│   ├── generate_fault_signals.py
+│   ├── validate_algorithm.py       # 算法验证（49项）
 │   ├── test_all_faults.py          # 多故障验证
 │   ├── test_cot_vs_tot.py          # COT vs TOT 对比
-│   └── test_full_validation.py     # 全面验证
-├── test/
-│   └── data/
-│       ├── normal/                 # 正常信号
-│       └── fault/                  # 故障信号（松靴/配流盘/柱塞）
+│   ├── test_full_validation.py     # 全面验证
+│   └── generate_report_figures.py  # 技术报告配图
+├── test/data/
+│   ├── normal/                 # 正常三轴数据
+│   └── fault/                  # 故障三轴数据
 └── docs/
-    ├── 项目上手指南.html        # 学习路径（10阶段+4能力）
-    ├── 算法技术报告.html        # 设备/架构/验证/五维自检/适用边界
-    ├── 诊断结果解读指南.html    # 诊断报告怎么读（面向诊断工程师）
-    ├── 诊断结果解读指南.md      # 同上的文本版
-    ├── kami-v2.md               # Kami 排版规范
-    └── images/                  # 验证图片（6张）
+    ├── 算法技术报告.md          # 验证报告（4张图+分析）
+    ├── 故障-信号映射表.md       # 12种故障的机理+特征+文献
+    ├── 诊断结果解读指南.md      # 诊断报告怎么读
+    ├── 出图经验手册.md          # matplotlib 中文出图经验
+    └── images/                  # 验证图片（4张）
 ```
 
 ## 异常处理
 
 ```python
 from order_tracking_extractor import (
-    OrderTrackingError,
-    ConfigError,
-    SignalInputError,
-    ComputationError,
+    OrderTrackingError, ConfigError, SignalInputError, ComputationError,
 )
 
 try:
@@ -183,8 +152,4 @@ except ConfigError as e:
     print("配置错误:", e)
 except SignalInputError as e:
     print("输入信号错误:", e)
-except ComputationError as e:
-    print("计算过程错误:", e)
-except OrderTrackingError as e:
-    print("封装包错误:", e)
 ```

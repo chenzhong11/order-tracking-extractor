@@ -1,5 +1,50 @@
 # 更新记录
 
+## v7.23 (2026-07-24) — 特征扩展 + 统计阈值 + 诊断报告
+
+### 特征扩展
+
+- **新增 `fault_band_domain`**：`extract_multi_axis_features()` 输出新增故障特定频带特征
+  - 按 8 种故障类型（松靴/配流盘/柱塞/斜盘/轴承内外圈/气穴/均匀磨损）提取敏感频带能量
+  - 冲击类：高频共振带包络 RMS + 包络谱特征频率幅值
+  - 磨损类：低频带 FFT 能量 + 重点阶次幅值
+
+### 统计阈值
+
+- **新增 `calibrate_from_signal()`**：从单段正常信号中滑动窗口切分伪样本，计算 3σ/P95 统计阈值
+- **新增 `diagnose_by_fault_pattern_statistical()`**：用统计阈值遍历所有故障类型
+- **新增 `compare_threshold_modes()`**：对比固定比值 / 3σ / P95 三种阈值模式
+
+### 诊断报告
+
+- **新增 `diagnostic_report.py`**：诊断报告可视化模块
+  - 非均匀横轴（低频精细展开 70%，高频压缩 30%）
+  - 正常/故障叠加对比（共享坐标系）
+  - 峰值数值标注（每个关键倍频标注具体幅值）
+  - 故障概率排序 + 诊断依据面板
+  - 支持 `y_mode="amplitude"/"energy"` 切换
+
+### 文献引用
+
+- 故障-信号映射表新增 12 篇硕博论文/期刊文献引用
+- 覆盖松靴[R1][R10]、配流盘/柱塞[R2][R9]、轴承[R3][R7][R8][R12]、气穴[R5][R6]、斜盘[R4][R11]
+
+### 清理
+
+- 删除未使用函数：`compute_envelope_spectrum`, `tachometer_to_speed`, `vk_order_analysis`, `save_features`, `load_features`, `diagnose_and_report`, `compute_feature_changes`, `match_fault_pattern`, `diagnose_by_sensitivity`, `_is_meta_key`, `_resolve_max_axis_feature`
+- 修复 `_flatten_features` 重复定义
+- 修复 `FaultBandConfig` 缺少 `@dataclass` 装饰器
+- 修复 `_MIN_FFT_LENGTH` 常量丢失
+- 删除无用的 `json`/`Path` 导入
+
+### 文档
+
+- 新增 `docs/算法技术报告.md`：按验证阶段组织（白盒测试→算法验证→阈值对比→综合诊断）
+- 新增 `docs/出图经验手册.md`：matplotlib 中文出图经验
+- 更新 `docs/故障-信号映射表.md`：新增文献引用
+- 更新 `docs/诊断结果解读指南.md`：新增统计阈值和诊断报告说明
+- 更新 `README.md`：同步功能和目录结构
+
 ## v7.22 (2026-07-23) — 代码修复与验证
 
 ### Bug 修复

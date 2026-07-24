@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "order-tracking-extractor"
-version = "7.22"
+version = "7.23"
 description = "阶次分析特征提取封装包：COT/TOT阶次分析 + 多维度特征提取 + 故障诊断"
 requires-python = ">=3.9"
 dependencies = [
